@@ -31,8 +31,18 @@ pipeline {
             }
             steps {
                 dir('bugtracker-backend') {
-                    sh "go test -v ./..."
-                }   
+                    sh '''
+                        go test -v ./... > test.log 2>&1; status=$?
+                        cat test.log
+                        go-junit-report < test.log > report.xml
+                        exit $status
+                    '''
+                }
+            }
+            post {
+                always {
+                    junit 'bugtracker-backend/report.xml'
+                }
             }
         }
 
@@ -51,8 +61,13 @@ pipeline {
                 dir('bugtracker-frontend') {
                     sh "npm ci"
                     sh "npm test"
-                }   
+                }
             }
-        }   
+            post {
+                always {
+                    junit 'bugtracker-frontend/test-results.xml'
+                }
+            }
+        }
     }
 }
