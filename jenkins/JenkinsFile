@@ -53,7 +53,7 @@ pipeline {
                         keepAll: true,
                         reportDir: 'bugtracker-backend/reports',
                         reportFiles: 'coverage.html',
-                        reportName: 'Coverage Report'
+                        reportName: 'Backend Coverage Report'
                     ])
                     archiveArtifacts artifacts: 'bugtracker-backend/reports/coverage.html', fingerprint: true
                 }
@@ -73,14 +73,33 @@ pipeline {
             }
             steps {
                 dir('bugtracker-frontend') {
-                    sh "npm ci"
-                    sh "npm test"
+                    sh '''
+                        npm ci
+
+                        npm test; status=$?
+
+                        mkdir -p reports
+                        mv test-results.xml reports/test-results.xml
+                        mv coverage reports/coverage
+
+                        exit $status
+                    '''
                 }
             }
             post {
                 always {
-                    junit 'bugtracker-frontend/test-results.xml'
+                    junit 'bugtracker-frontend/reports/test-results.xml'
+                    publishHTML(target: [
+                        allowMissing: false,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: 'bugtracker-frontend/reports/coverage',
+                        reportFiles: 'index.html',
+                        reportName: 'Frontend Coverage Report'
+                    ])
+                    archiveArtifacts artifacts: 'bugtracker-frontend/reports/coverage/index.html', fingerprint: true
                 }
+
             }
         }
     }
