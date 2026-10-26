@@ -32,16 +32,30 @@ pipeline {
             steps {
                 dir('bugtracker-backend') {
                     sh '''
-                        go test -v ./... > test.log 2>&1; status=$?
+                        mkdir -p reports
+
+                        go test -v -coverprofile=coverage.out ./... > test.log 2>&1; status=$?
                         cat test.log
-                        go-junit-report < test.log > report.xml
+                        go-junit-report < test.log > reports/report.xml
+
+                        go tool cover -html=coverage.out -o reports/coverage.html
+
                         exit $status
                     '''
                 }
             }
             post {
                 always {
-                    junit 'bugtracker-backend/report.xml'
+                    junit 'bugtracker-backend/reports/report.xml'
+                    publishHTML(target: [
+                        allowMissing: false,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: 'bugtracker-backend/reports',
+                        reportFiles: 'coverage.html',
+                        reportName: 'Coverage Report'
+                    ])
+                    archiveArtifacts artifacts: 'bugtracker-backend/reports/coverage.html', fingerprint: true
                 }
             }
         }
