@@ -2,104 +2,92 @@ pipeline {
     agent any
 
     stages {
-        stage('Build') {
-            steps {
-                echo 'Building...'
-            }
-        }
-        stage('Test') {
-            steps {
-                echo 'Testing...'
-            }
-        }
-        stage('Deploy') {
-            steps {
-                echo 'Deploying...'
-            }
-        }
+        stage('Execute Unit Tests') {
+            parallel {
+                stage('Unit Test - Backend') {
+                    agent {
+                        docker {
+                            image 'snakee/golang-junit:1.21'
+                            reuseNode true
+                        }
+                    }
+                    environment {
+                        GOCACHE = '/tmp/.cache/go-build'
+                        GOPATH = '/tmp/go'
+                    }
+                    steps {
+                        dir('bugtracker-backend') {
+                            sh '''
+                                mkdir -p reports
 
-        stage('Unit Test - Backend') {
-            agent {
-                docker {
-                    image 'snakee/golang-junit:1.21'
-                    reuseNode true
-                }
-            }
-            environment {
-                GOCACHE = '/tmp/.cache/go-build'
-                GOPATH = '/tmp/go'
-            }
-            steps {
-                dir('bugtracker-backend') {
-                    sh '''
-                        mkdir -p reports
+                                go test -v -coverprofile=coverage.out ./... > test.log 2>&1; status=$?
+                                cat test.log
+                                go-junit-report < test.log > reports/report.xml
 
-                        go test -v -coverprofile=coverage.out ./... > test.log 2>&1; status=$?
-                        cat test.log
-                        go-junit-report < test.log > reports/report.xml
+                                go tool cover -html=coverage.out -o reports/coverage.html
 
-                        go tool cover -html=coverage.out -o reports/coverage.html
-
-                        exit $status
-                    '''
-                }
-            }
-            post {
-                always {
-                    junit 'bugtracker-backend/reports/report.xml'
-                    publishHTML(target: [
-                        allowMissing: false,
-                        alwaysLinkToLastBuild: true,
-                        keepAll: true,
-                        reportDir: 'bugtracker-backend/reports',
-                        reportFiles: 'coverage.html',
-                        reportName: 'Backend Coverage Report'
-                    ])
-                    archiveArtifacts artifacts: 'bugtracker-backend/reports/coverage.html', fingerprint: true
-                }
-            }
-        }
-
-        stage('Unit Test - Frontend') {
-            agent {
-                docker {
-                    image 'node:20'
-                    reuseNode true
-                }
-            }
-            environment {
-                HOME = '/tmp'
-                npm_config_cache = '/tmp/.npm'
-            }
-            steps {
-                dir('bugtracker-frontend') {
-                    sh '''
-                        npm ci
-
-                        npm test; status=$?
-
-                        mkdir -p reports
-                        mv test-results.xml reports/test-results.xml
-                        mv coverage reports/coverage
-
-                        exit $status
-                    '''
-                }
-            }
-            post {
-                always {
-                    junit 'bugtracker-frontend/reports/test-results.xml'
-                    publishHTML(target: [
-                        allowMissing: false,
-                        alwaysLinkToLastBuild: true,
-                        keepAll: true,
-                        reportDir: 'bugtracker-frontend/reports/coverage',
-                        reportFiles: 'index.html',
-                        reportName: 'Frontend Coverage Report'
-                    ])
-                    archiveArtifacts artifacts: 'bugtracker-frontend/reports/coverage/index.html', fingerprint: true
+                                exit $status
+                            '''
+                        }
+                    }
+                    post {
+                        always {
+                            junit 'bugtracker-backend/reports/report.xml'
+                            publishHTML(target: [
+                                allowMissing: false,
+                                alwaysLinkToLastBuild: true,
+                                keepAll: true,
+                                reportDir: 'bugtracker-backend/reports',
+                                reportFiles: 'coverage.html',
+                                reportName: 'Backend Coverage Report'
+                            ])
+                            archiveArtifacts artifacts: 'bugtracker-backend/reports/coverage.html', fingerprint: true
+                        }
+                    }
                 }
 
+                stage('Unit Test - Frontend') {
+                    agent {
+                        docker {
+                            image 'node:20'
+                            reuseNode true
+                        }
+                    }
+                    environment {
+                        HOME = '/tmp'
+                        npm_config_cache = '/tmp/.npm'
+                    }
+                    steps {
+                        dir('bugtracker-frontend') {
+                            sh '''
+                                npm ci
+
+                                npm test; status=$?
+
+                                mkdir -p reports
+                                mv test-results.xml reports/test-results.xml
+                                mv coverage reports/coverage
+
+                                exit $status
+                            '''
+                        }
+                    }
+                    post {
+                        always {
+                            junit 'bugtracker-frontend/reports/test-results.xml'
+                            publishHTML(target: [
+                                allowMissing: false,
+                                alwaysLinkToLastBuild: true,
+                                keepAll: true,
+                                reportDir: 'bugtracker-frontend/reports/coverage',
+                                reportFiles: 'index.html',
+                                reportName: 'Frontend Coverage Report'
+                            ])
+                            archiveArtifacts artifacts: 'bugtracker-frontend/reports/coverage/index.html', fingerprint: true
+                        }
+
+                    }
+                }
             }
         }
     }
