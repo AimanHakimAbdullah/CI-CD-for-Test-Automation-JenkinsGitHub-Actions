@@ -76,7 +76,9 @@ pipeline {
                                 # Capture the exit code so reports are still collected when tests fail
                                 npm test; status=$?
 
-                                # Move JUnit and coverage output into reports/ for publishing
+                                # Move JUnit and coverage output into a fresh reports/ for publishing
+                                # (clear it first so a leftover reports/coverage from an earlier build doesn't break mv)
+                                rm -rf reports
                                 mkdir -p reports
                                 mv test-results.xml reports/test-results.xml
                                 mv coverage reports/coverage
@@ -116,6 +118,50 @@ pipeline {
             }
             steps {
                 sh 'docker compose up --build -d'
+            }
+        }
+
+        stage('API Tests') {
+            // Playwright image version matches @playwright/test in tests-api/package-lock.json
+            agent {
+                docker {
+                    image 'mcr.microsoft.com/playwright:v1.50.0-jammy'
+                    reuseNode true
+                    // host network so localhost:8080 reaches the backend published by compose
+                    args '--network host'
+                }
+            }
+            environment {
+                HOME = '/tmp'
+                npm_config_cache = '/tmp/.npm'
+            }
+            steps {
+                dir('tests-api') {
+                    sh '''
+                        npm ci
+
+                        # up -d returns before the app is ready, so wait for the backend port
+                        npx wait-port -t 60000 localhost:8080
+
+                        # Capture the exit code so reports are still published when tests fail
+                        npx playwright test; status=$?
+                        exit $status
+                    '''
+                }
+            }
+            // Publish results even if the tests failed
+            post {
+                always {
+                    junit 'tests-api/test-results/results.xml'
+                    publishHTML(target: [
+                        allowMissing: false,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: 'tests-api/playwright-report',
+                        reportFiles: 'index.html',
+                        reportName: 'API Test Report'
+                    ])
+                }
             }
         }
     }
