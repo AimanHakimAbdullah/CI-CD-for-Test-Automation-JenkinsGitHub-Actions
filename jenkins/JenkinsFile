@@ -2,15 +2,18 @@ pipeline {
     agent any
 
     stages {
+        // Backend and frontend unit tests are independent, so run them side by side
         stage('Execute Unit Tests') {
             parallel {
                 stage('Unit Test - Backend') {
+                    // Run inside a Go container; reuseNode keeps the same workspace as the host agent
                     agent {
                         docker {
                             image 'snakee/golang-junit:1.21'
                             reuseNode true
                         }
                     }
+                    // Point Go caches at /tmp because the container user cannot write to the default location
                     environment {
                         GOCACHE = '/tmp/.cache/go-build'
                         GOPATH = '/tmp/go'
@@ -20,16 +23,21 @@ pipeline {
                             sh '''
                                 mkdir -p reports
 
+                                # Capture the exit code so reports are still generated when tests fail
                                 go test -v -coverprofile=coverage.out ./... > test.log 2>&1; status=$?
                                 cat test.log
+                                # Convert go test output to JUnit XML for Jenkins
                                 go-junit-report < test.log > reports/report.xml
 
+                                # Render the coverage profile as an HTML report
                                 go tool cover -html=coverage.out -o reports/coverage.html
 
+                                # Fail the stage with the original test result
                                 exit $status
                             '''
                         }
                     }
+                    // Publish results even if the tests failed
                     post {
                         always {
                             junit 'bugtracker-backend/reports/report.xml'
@@ -47,12 +55,14 @@ pipeline {
                 }
 
                 stage('Unit Test - Frontend') {
+                    // Run inside a Node container; reuseNode keeps the same workspace as the host agent
                     agent {
                         docker {
                             image 'node:20'
                             reuseNode true
                         }
                     }
+                    // Give npm a writable HOME and cache since the container user has no home directory
                     environment {
                         HOME = '/tmp'
                         npm_config_cache = '/tmp/.npm'
@@ -60,18 +70,23 @@ pipeline {
                     steps {
                         dir('bugtracker-frontend') {
                             sh '''
+                                # Clean, reproducible install from package-lock.json
                                 npm ci
 
+                                # Capture the exit code so reports are still collected when tests fail
                                 npm test; status=$?
 
+                                # Move JUnit and coverage output into reports/ for publishing
                                 mkdir -p reports
                                 mv test-results.xml reports/test-results.xml
                                 mv coverage reports/coverage
 
+                                # Fail the stage with the original test result
                                 exit $status
                             '''
                         }
                     }
+                    // Publish results even if the tests failed
                     post {
                         always {
                             junit 'bugtracker-frontend/reports/test-results.xml'
@@ -90,5 +105,18 @@ pipeline {
                 }
             }
         }
+
+        stage('Launch Application'){{
+            agent {{
+                docker {
+                    image 'docker:27.5.1'
+                    reuseNode true
+                    args '-v /var/run/docker.sock:/var/run/docker.sock -u 0'
+                }
+            }}
+            steps{
+                sh 'docker compose up --build -d'
+            }
+        }}
     }
 }
