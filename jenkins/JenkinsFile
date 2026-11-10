@@ -172,6 +172,16 @@ pipeline {
                     reuseNode true
                     args '--network host'
                 }
+
+                steps{
+                    dir('tests-e2e'){
+                        sh '''
+                        npm ci
+
+                        npx playwright test
+                        '''
+                    }
+                }
             }
         }
     }
