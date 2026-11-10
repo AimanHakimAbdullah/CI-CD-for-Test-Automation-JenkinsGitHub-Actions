@@ -198,7 +198,24 @@ pipeline {
                     }
                 }
         }
-        
+
+        stage ('Performance Test') {
+            agent {
+                docker {
+                    //using k6 docker image to run performance test
+                    image 'grafana/k6:0.45.0'
+                    reuseNode true
+                    args '--network=host -u root --entrypoint="" '
+                }
+            }
+
+            steps{
+                dir('tests-perf'){
+                    sh 'k6 run script.js'
+                }
+            }
+        }
+
     }
 
     post {
