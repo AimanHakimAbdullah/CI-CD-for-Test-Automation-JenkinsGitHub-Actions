@@ -164,6 +164,16 @@ pipeline {
                 }
             }
         }
+
+        stage('E2E Test'){
+            agent {
+                docker{
+                    image 'mcr.microsoft.com/playwright:v1.64.0-noble'
+                    reuseNode true
+                    args '--network host'
+                }
+            }
+        }
     }
 
     post {
