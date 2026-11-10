@@ -168,7 +168,7 @@ pipeline {
         stage('E2E Test'){
             agent {
                 docker{
-                    image 'mcr.microsoft.com/playwright:v1.64.0-noble'
+                    image 'mcr.microsoft.com/playwright:v1.50.0-noble'
                     reuseNode true
                     args '--network host'
                 }
@@ -181,6 +181,20 @@ pipeline {
 
                         npx playwright test
                         '''
+                    }
+                }
+
+                post {
+                    always {
+                        junit 'tests-e2e/test-results/results.xml'
+                        publishHTML(target: [
+                            allowMissing: false,
+                            alwaysLinkToLastBuild: true,
+                            keepAll: true,
+                            reportDir: 'tests-e2e/playwright-report',
+                            reportFiles: 'index.html',
+                            reportName: 'E2E Test Report'
+                        ])
                     }
                 }
         }
