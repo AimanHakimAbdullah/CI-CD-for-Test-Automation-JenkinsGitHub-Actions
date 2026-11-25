@@ -4,7 +4,7 @@ name: CI
 
 # Controls when the workflow will run
 on:
-  # Triggers the workflow on push or pull request events but only for the "main" branch
+  # Triggers the workflow on push request events but only for the "main" branch
   push:
     branches: [ "main" ]
 
@@ -25,16 +25,36 @@ jobs:
 
       # Sets up a Go environment for use in actions by adding it to the PATH
       - name: Set up Go 1.21
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
           go-version: "1.21"
-          cache-dependencies: true
           cache-dependency-path: bugtracker-backend/go.sum
-
 
       - name: Run backend unit tests
         working-directory: ./bugtracker-backend
         run: |
               go test -v ./... 
 
-      
+  # This workflow contains a single job called "unit-tests-frontend"
+  unit-tests-frontend:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v4
+
+      # Sets up a Node.js environment for use in actions by adding it to the PATH
+      - name: Set up Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: "npm"
+          cache-dependency-path: bugtracker-frontend/package-lock.json
+
+      - name: Run frontend unit tests
+        working-directory: ./bugtracker-frontend
+        run: |
+              npm ci
+              npm test 
