@@ -11,6 +11,11 @@ on:
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
+# Needed by dorny/test-reporter to publish check runs
+permissions:
+  contents: read
+  checks: write
+
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   # This workflow contains a single job called "unit-tests-backend"
@@ -33,7 +38,38 @@ jobs:
       - name: Run backend unit tests
         working-directory: ./bugtracker-backend
         run: |
-              go test -v ./... 
+              mkdir -p reports
+              # Keep the test exit code so reports are still generated on failure
+              set +e
+              go test -v -coverprofile=coverage.out ./... 2>&1 | tee test.log
+              status=${PIPESTATUS[0]}
+              set -e
+
+              # JUnit XML + HTML coverage, like the Jenkins pipeline
+              go install github.com/jstemmer/go-junit-report/v2@v2.1.0
+              "$(go env GOPATH)/bin/go-junit-report" < test.log > reports/report.xml
+              go tool cover -html=coverage.out -o reports/coverage.html
+
+              # Show total coverage on the run summary page
+              echo "### Backend coverage" >> "$GITHUB_STEP_SUMMARY"
+              go tool cover -func=coverage.out | tail -1 >> "$GITHUB_STEP_SUMMARY"
+
+              exit $status
+
+      - name: Upload backend report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-report
+          path: bugtracker-backend/reports/
+
+      - name: Publish backend test results
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: Backend Unit Tests Report
+          path: bugtracker-backend/reports/report.xml
+          reporter: java-junit
 
   # This workflow contains a single job called "unit-tests-frontend"
   unit-tests-frontend:
@@ -57,4 +93,32 @@ jobs:
         working-directory: ./bugtracker-frontend
         run: |
               npm ci
-              npm test 
+
+              # Keep the test exit code so reports are still collected on failure
+              set +e
+              npm test
+              status=$?
+              set -e
+
+              # Gather JUnit XML and coverage output for upload
+              rm -rf reports
+              mkdir -p reports
+              mv test-results.xml reports/test-results.xml
+              mv coverage reports/coverage
+
+              exit $status
+
+      - name: Upload frontend report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-report
+          path: bugtracker-frontend/reports/
+
+      - name: Publish frontend test results
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: Frontend Unit Tests Report
+          path: bugtracker-frontend/reports/test-results.xml
+          reporter: jest-junit
