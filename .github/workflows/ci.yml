@@ -8,6 +8,10 @@ on:
   push:
     branches: [ "main" ]
 
+  # Triggers on pull requests targeting "main" (needed for the coverage PR comment)
+  pull_request:
+    branches: [ "main" ]
+
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
@@ -54,6 +58,19 @@ jobs:
               echo "### Backend coverage" >> "$GITHUB_STEP_SUMMARY"
               go tool cover -func=coverage.out | tail -1 >> "$GITHUB_STEP_SUMMARY"
 
+              # Markdown snippet used by the "coverage-comment" job
+              {
+                echo "### Backend (Go)"
+                echo "**Total coverage:** $(go tool cover -func=coverage.out | tail -1 | awk '{print $NF}')"
+                echo
+                echo "<details><summary>Per-function coverage</summary>"
+                echo
+                echo '```'
+                go tool cover -func=coverage.out
+                echo '```'
+                echo "</details>"
+              } > reports/coverage-comment.md
+
               exit $status
 
       - name: Upload backend report
@@ -70,6 +87,7 @@ jobs:
           name: Backend Unit Tests Report
           path: bugtracker-backend/reports/report.xml
           reporter: java-junit
+          use-actions-summary: false
 
   # This workflow contains a single job called "unit-tests-frontend"
   unit-tests-frontend:
@@ -96,7 +114,8 @@ jobs:
 
               # Keep the test exit code so reports are still collected on failure
               set +e
-              npm test
+              # Extra json-summary reporter gives machine-readable totals for the PR comment
+              npm test -- --coverageReporters=json-summary
               status=$?
               set -e
 
@@ -105,6 +124,17 @@ jobs:
               mkdir -p reports
               mv test-results.xml reports/test-results.xml
               mv coverage reports/coverage
+
+              # Markdown snippet used by the "coverage-comment" job
+              node -e '
+                const t = require("./reports/coverage/coverage-summary.json").total;
+                const row = k => `| ${k} | ${t[k].pct}% (${t[k].covered}/${t[k].total}) |`;
+                console.log([
+                  "### Frontend (Jest)", "",
+                  "| Metric | Coverage |", "|---|---|",
+                  ...["lines", "statements", "functions", "branches"].map(row),
+                ].join("\n"));
+              ' > reports/coverage-comment.md
 
               exit $status
 
@@ -122,3 +152,36 @@ jobs:
           name: Frontend Unit Tests Report
           path: bugtracker-frontend/reports/test-results.xml
           reporter: jest-junit
+          use-actions-summary: false
+
+  # Posts (or updates) one coverage comment on the pull request
+  coverage-comment:
+    # Run even if tests failed, but only for pull requests
+    if: always() && github.event_name == 'pull_request'
+    needs: [unit-tests-backend, unit-tests-frontend]
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+
+    steps:
+      # Downloads every artifact of this run into reports/<artifact-name>/
+      - uses: actions/download-artifact@v4
+        with:
+          path: reports
+
+      - name: Build coverage comment
+        run: |
+          {
+            echo "## Unit test coverage"
+            echo
+            cat reports/backend-report/coverage-comment.md 2>/dev/null || echo "_Backend coverage not available_"
+            echo
+            cat reports/frontend-report/coverage-comment.md 2>/dev/null || echo "_Frontend coverage not available_"
+          } > coverage-comment.md
+
+      # "header" makes it a sticky comment: later pushes edit it instead of adding new ones
+      - name: Post coverage comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: coverage
+          path: coverage-comment.md
